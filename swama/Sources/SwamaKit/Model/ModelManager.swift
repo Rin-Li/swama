@@ -5,14 +5,21 @@ import Foundation
 /// Manages available MLX models, providing functionalities to list and load them.
 public enum ModelManager {
     /// Lists all locally available models.
-    /// It scans a predefined directory structure for models and their metadata.
+    /// It scans both preferred and legacy directories for models and their metadata.
     public static func models() -> [ModelInfo] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        // Standard directory for storing Hugging Face models.
-        let modelsRootDirectory = home.appendingPathComponent("Documents")
-            .appendingPathComponent("huggingface")
-            .appendingPathComponent("models")
+        var modelInfos: [ModelInfo] = []
 
+        // Scan all model directories (both preferred and legacy)
+        for modelsRootDirectory in ModelPaths.allModelsDirectories {
+            let directoryModels = scanModelsDirectory(at: modelsRootDirectory)
+            modelInfos.append(contentsOf: directoryModels)
+        }
+
+        return modelInfos
+    }
+
+    /// Scans a specific models directory and returns ModelInfo array
+    private static func scanModelsDirectory(at modelsRootDirectory: URL) -> [ModelInfo] {
         var modelInfos: [ModelInfo] = []
         let orgDirs: [URL]
         do {
@@ -23,10 +30,13 @@ public enum ModelManager {
             )
         }
         catch {
-            fputs(
-                "SwamaKit.ModelManager: Error reading models root directory \(modelsRootDirectory.path): \(error.localizedDescription)\n",
-                stderr
-            )
+            // Only log error if the directory should exist (not for optional paths)
+            if FileManager.default.fileExists(atPath: modelsRootDirectory.path) {
+                fputs(
+                    "SwamaKit.ModelManager: Error reading models root directory \(modelsRootDirectory.path): \(error.localizedDescription)\n",
+                    stderr
+                )
+            }
             return [] // Return empty if the root directory is inaccessible
         }
 
@@ -95,37 +105,6 @@ public enum ModelManager {
         }
         return modelInfos
     }
-
-    /// Loads detailed information for a specific model by its ID.
-    public static func loadModel(id: String) throws -> LoadedModel {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let modelsBaseDirectory = home.appendingPathComponent("Documents")
-            .appendingPathComponent("huggingface")
-            .appendingPathComponent("models")
-        let modelDir = modelsBaseDirectory.appendingPathComponent(id)
-        let configURL = modelDir.appendingPathComponent("config.json")
-        let tokenizerURL = modelDir.appendingPathComponent("tokenizer.json")
-
-        // Find weight files with common extensions
-        let weightFiles = try? FileManager.default
-            .contentsOfDirectory(at: modelDir, includingPropertiesForKeys: nil)
-            .filter { ["safetensors", "bin", "pth", "npz", "mlx"].contains($0.pathExtension) }
-
-        let configData = try? Data(contentsOf: configURL)
-        let configJSON = configData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-
-        var tokenizerJSON: [String: Any]? = nil
-        if FileManager.default.fileExists(atPath: tokenizerURL.path) {
-            let tokenizerData = try? Data(contentsOf: tokenizerURL)
-            tokenizerJSON = tokenizerData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        }
-        return LoadedModel(
-            id: id,
-            config: configJSON,
-            tokenizer: tokenizerJSON,
-            weightFiles: weightFiles ?? []
-        )
-    }
 }
 
 // MARK: - MetadataSource
@@ -158,23 +137,6 @@ public struct ModelInfo: Identifiable { // Added Identifiable for potential UI u
         self.sizeInBytes = sizeInBytes
         self.source = source
         self.rawMetadata = rawMetadata
-    }
-}
-
-// MARK: - LoadedModel
-
-/// Detailed information about a loaded model, including configuration and tokenizer data.
-public struct LoadedModel {
-    public let id: String
-    public let config: [String: Any]? // Model configuration JSON
-    public let tokenizer: [String: Any]? // Tokenizer configuration JSON
-    public let weightFiles: [URL] // URLs to model weight files
-
-    public init(id: String, config: [String: Any]?, tokenizer: [String: Any]?, weightFiles: [URL]) {
-        self.id = id
-        self.config = config
-        self.tokenizer = tokenizer
-        self.weightFiles = weightFiles
     }
 }
 

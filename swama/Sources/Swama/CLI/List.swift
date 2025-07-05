@@ -41,7 +41,6 @@ struct List: AsyncParsableCommand {
     private func printModelsText(_ models: [ModelInfo]) {
         // Determine column widths
         let nameHeader = "NAME"
-        let idHeader = "ID" // For internal use if NAME is different
         let sizeHeader = "SIZE"
         let modifiedHeader = "MODIFIED"
 
@@ -69,15 +68,11 @@ struct List: AsyncParsableCommand {
             return (name: name, id: model.id, size: size, modified: modified)
         }
 
-        // Print header
-        let header =
-            "\(nameHeader.padding(toLength: maxNameLen, withPad: " ", startingAt: 0))  \(idHeader.padding(toLength: 12, withPad: " ", startingAt: 0)) \(sizeHeader.padding(toLength: maxSizeLen, withPad: " ", startingAt: 0))  \(modifiedHeader.padding(toLength: maxModifiedLen, withPad: " ", startingAt: 0))"
         // Header with NAME, ID (short hash for uniqueness if needed, or full ID if short), SIZE, MODIFIED
         // For now, let's use full ID for NAME, and a placeholder for a shorter ID if we decide to implement it.
         // We will display the full model.id as NAME, and can add a short ID column if needed later.
         // The request was to be like ollama, which uses NAME, ID (short hash), SIZE, MODIFIED.
         // Let's simplify for now and use NAME (full model id), SIZE, MODIFIED.
-
         print(
             "\(nameHeader.padding(toLength: maxNameLen, withPad: " ", startingAt: 0))  \(sizeHeader.padding(toLength: maxSizeLen, withPad: " ", startingAt: 0))  \(modifiedHeader.padding(toLength: maxModifiedLen, withPad: " ", startingAt: 0))"
         )
@@ -142,7 +137,7 @@ struct List: AsyncParsableCommand {
                 "source": AnyCodable(modelInfo.source == .metaFile ? "metaFile" : "directoryScan")
             ]
             if let rawMetadata = modelInfo.rawMetadata {
-                dict["raw_metadata"] = AnyCodable(rawMetadata.mapValues(AnyCodable.init))
+                dict["raw_metadata"] = wrapAnyCodable(rawMetadata)
             }
             return dict
         }
@@ -151,6 +146,35 @@ struct List: AsyncParsableCommand {
         if let jsonString = String(data: data, encoding: .utf8) {
             print(jsonString)
         }
+    }
+
+    private func wrapAnyCodable(_ value: Any) -> AnyCodable {
+        if let dict = value as? [String: Any] {
+            let wrappedDict = dict.mapValues { wrapAnyCodable($0) }
+            return AnyCodable(wrappedDict)
+        }
+        else if let array = value as? [Any] {
+            let wrappedArray = array.map { wrapAnyCodable($0) }
+            return AnyCodable(wrappedArray)
+        }
+        else if isBasicType(value) {
+            return AnyCodable(value)
+        }
+        else {
+            // Convert unsupported types to string description
+            return AnyCodable(String(describing: value))
+        }
+    }
+
+    private func isBasicType(_ value: Any) -> Bool {
+        value is Int ||
+            value is Int64 ||
+            value is UInt ||
+            value is String ||
+            value is Double ||
+            value is Float ||
+            value is Bool ||
+            value is NSNull
     }
 }
 
@@ -182,24 +206,24 @@ struct AnyCodable: Encodable {
         else if let boolValue = value as? Bool {
             try container.encode(boolValue)
         }
-        else if let arrayValue = value as? [Any] {
-            try container.encode(arrayValue.map { AnyCodable($0) })
+        else if let arrayValue = value as? [AnyCodable] {
+            try container.encode(arrayValue)
         }
-        else if let dictionaryValue = value as? [String: Any] {
-            try container.encode(dictionaryValue.mapValues { AnyCodable($0) })
+        else if let dictionaryValue = value as? [String: AnyCodable] {
+            try container.encode(dictionaryValue)
         }
         else if let int64Value = value as? Int64 {
             try container.encode(int64Value)
         }
+        else if let uintValue = value as? UInt {
+            try container.encode(uintValue)
+        }
+        else if let floatValue = value as? Float {
+            try container.encode(floatValue)
+        }
         else {
-            // Fallback or error for unhandled types
-            throw EncodingError.invalidValue(
-                value,
-                EncodingError.Context(
-                    codingPath: container.codingPath,
-                    debugDescription: "AnyCodable value could not be encoded"
-                )
-            )
+            // Convert unsupported types to string description
+            try container.encode(String(describing: value))
         }
     }
 }

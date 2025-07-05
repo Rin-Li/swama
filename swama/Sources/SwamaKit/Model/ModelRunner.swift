@@ -2,14 +2,14 @@ import CoreImage
 import Foundation
 import MLX
 import MLXLLM
-import MLXLMCommon
+@preconcurrency import MLXLMCommon
 import MLXVLM
+import Tokenizers
 
 /// Loads a model container for the given model name.
 /// This function utilizes MLXLMCommon to handle caching or downloading of the model.
 public func loadModelContainer(modelName: String) async throws -> ModelContainer {
-    // MLXLMCommon will interpret the modelName as a Hugging Face repo ID or check its internal cache.
-    let config = ModelConfiguration(id: modelName)
+    let config = createModelConfiguration(modelName: modelName)
 
     let container: ModelContainer
     do {
@@ -32,6 +32,23 @@ public func loadModelContainer(modelName: String) async throws -> ModelContainer
     return container
 }
 
+/// Creates a ModelConfiguration for the given model name, checking for local directory first.
+/// Returns a directory-based configuration if the model exists locally, otherwise returns an ID-based configuration.
+/// Checks both new path and legacy path for compatibility.
+public func createModelConfiguration(modelName: String) -> ModelConfiguration {
+    if ModelPaths.modelExistsLocally(modelName) {
+        let localDir = ModelPaths.getModelDirectory(for: modelName)
+        // Use local directory configuration (offline mode)
+        NSLog("SwamaKit.ModelRunner: Using local model directory: \(localDir.path)")
+        return ModelConfiguration(directory: localDir)
+    }
+    else {
+        // Fall back to HuggingFace Hub ID (online mode)
+        NSLog("SwamaKit.ModelRunner: Model not found locally, will attempt download from HuggingFace Hub")
+        return ModelConfiguration(id: modelName)
+    }
+}
+
 // MARK: - ModelRunner
 
 /// An actor responsible for running model inference.
@@ -44,110 +61,69 @@ public actor ModelRunner {
 
     // MARK: Public
 
-    /// Runs the model with the given prompt, optional images, and parameters, returning the generated output and token
-    /// usage.
-    public func runWithUsage(
-        prompt: String,
-        images: [Data]? = nil,
-        parameters: GenerateParameters
-    ) async throws -> (output: String, promptTokens: Int, completionTokens: Int) {
-        try await container.perform { (context: MLXLMCommon.ModelContext) async throws -> (
-            output: String,
-            promptTokens: Int,
-            completionTokens: Int
-        ) in
-            let inputText = prompt
-            var promptTokens = 0
-
-            var ciImages: [CIImage]?
-            if let imageDataArray = images, !imageDataArray.isEmpty {
-                autoreleasepool {
-                    ciImages = imageDataArray.compactMap { data -> CIImage? in
-                        return CIImage(data: data)
-                    }
-                }
-                if ciImages?.isEmpty == true, !imageDataArray.isEmpty {
-                    ciImages = nil
-                }
-            }
-
-            let userInput: MLXLMCommon.UserInput
-            var lmInput: MLXLMCommon.LMInput
-
-            if let validCIImages = ciImages, !validCIImages.isEmpty, context.model is MLXVLM.VLMModel {
-                let mlxUserInputImages = validCIImages.map { MLXLMCommon.UserInput.Image.ciImage($0) }
-                let chatMessages: [MLXLMCommon.Chat.Message] = [
-                    .user(inputText, images: mlxUserInputImages)
-                ]
-                userInput = MLXLMCommon.UserInput(chat: chatMessages)
-                lmInput = try await context.processor.prepare(input: userInput)
-            }
-            else {
-                userInput = MLXLMCommon.UserInput(prompt: inputText)
-                lmInput = try await context.processor.prepare(input: userInput)
-            }
-
-            promptTokens = lmInput.text.tokens.count
-
-            var output = ""
-            var completionTokens = 0
-            var detokenizer = StreamingDetokenizer(tokenizer: context.tokenizer)
-
-            _ = try generate(input: lmInput, parameters: parameters, context: context) { token in
-                completionTokens += 1
-                if let chunk = detokenizer.append(token: token) {
-                    output += chunk
-                }
-                return .more
-            }
-
-            return (output, promptTokens, completionTokens)
-        }
+    /// Runs the model with the given prompt and parameters, returning only the generated output string.
+    public func run(prompt: String, images _: [Data]? = nil, parameters: GenerateParameters) async throws -> String {
+        // Use new chat-based method for consistency
+        let chatMessages: [MLXLMCommon.Chat.Message] = [.user(prompt)]
+        let (output, _, _) = try await runWithChatUsage(chatMessages: chatMessages, parameters: parameters)
+        return output
     }
 
-    /// Runs the model with the given prompt, optional images, and parameters, streaming the output and returning token
-    /// usage.
-    public func runStreamWithUsage(
-        prompt: String,
-        images: [Data]? = nil,
-        parameters: GenerateParameters,
-        onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> (promptTokens: Int, completionInfo: GenerateCompletionInfo?) {
-        try await container.perform { (context: MLXLMCommon.ModelContext) async throws -> (
+    /// Runs the model with chat messages, returning the generated output and token usage.
+    public nonisolated func runWithChatUsage(
+        chatMessages: [MLXLMCommon.Chat.Message],
+        parameters: GenerateParameters
+    ) async throws -> (String, Int, Int) {
+        let userInput = MLXLMCommon.UserInput(chat: chatMessages)
+        let result = try await runChat(
+            userInput: userInput,
+            parameters: parameters
+        )
+        let completionTokens = result.completionInfo?.generationTokenCount ?? 0
+        return (result.output, result.promptTokens, completionTokens)
+    }
+
+    /// Non-streaming chat execution - collects all output and returns at the end
+    public nonisolated func runChatNonStream(
+        userInput: MLXLMCommon.UserInput,
+        parameters: GenerateParameters
+    ) async throws
+        -> (
+            output: String,
             promptTokens: Int,
-            completionInfo: GenerateCompletionInfo?
-        ) in
-            let inputText = prompt
+            completionInfo: GenerateCompletionInfo?,
+            toolCalls: [MLXLMCommon.ToolCall]
+        )
+    {
+        // For non-streaming, we don't provide callbacks, so runChat will accumulate internally
+        try await runChat(
+            userInput: userInput,
+            parameters: parameters
+        )
+    }
+
+    /// Unified method for running chat with optional streaming and tool calls support
+    public nonisolated func runChat(
+        userInput: MLXLMCommon.UserInput,
+        parameters: GenerateParameters,
+        onToken: (@Sendable (String) -> Void)? = nil,
+        onToolCall: (@Sendable (MLXLMCommon.ToolCall) -> Void)? = nil
+    ) async throws
+        -> (
+            output: String,
+            promptTokens: Int,
+            completionInfo: GenerateCompletionInfo?,
+            toolCalls: [MLXLMCommon.ToolCall]
+        )
+    {
+        try await container.perform { (context: ModelContext) in
+            var output = ""
             var promptTokens = 0
             var capturedCompletionInfo: GenerateCompletionInfo?
+            var toolCalls: [MLXLMCommon.ToolCall] = []
 
-            var ciImages: [CIImage]?
-            if let imageDataArray = images, !imageDataArray.isEmpty {
-                autoreleasepool {
-                    ciImages = imageDataArray.compactMap { data -> CIImage? in
-                        return CIImage(data: data)
-                    }
-                }
-                if ciImages?.isEmpty == true, !imageDataArray.isEmpty {
-                    ciImages = nil
-                }
-            }
-
-            let userInput: MLXLMCommon.UserInput
-            var lmInput: MLXLMCommon.LMInput
-
-            if let validCIImages = ciImages, !validCIImages.isEmpty, context.model is MLXVLM.VLMModel {
-                let mlxUserInputImages = validCIImages.map { MLXLMCommon.UserInput.Image.ciImage($0) }
-                let chatMessages: [MLXLMCommon.Chat.Message] = [
-                    .user(inputText, images: mlxUserInputImages)
-                ]
-                userInput = MLXLMCommon.UserInput(chat: chatMessages)
-                lmInput = try await context.processor.prepare(input: userInput)
-            }
-            else {
-                userInput = MLXLMCommon.UserInput(prompt: inputText)
-                lmInput = try await context.processor.prepare(input: userInput)
-            }
+            // Use the provided UserInput directly
+            let lmInput = try await context.processor.prepare(input: userInput)
 
             promptTokens = lmInput.text.tokens.count
 
@@ -160,21 +136,34 @@ public actor ModelRunner {
             for await generationEvent in generationStream {
                 switch generationEvent {
                 case let .chunk(chunkString):
-                    onToken(chunkString)
+                    onToken?(chunkString)
+                    // Only accumulate if no onToken callback (for non-streaming)
+                    if onToken == nil {
+                        output += chunkString
+                    }
+
                 case let .info(info):
                     capturedCompletionInfo = info
+
+                case let .toolCall(toolCall):
+                    onToolCall?(toolCall)
+                    // Only accumulate if no onToolCall callback (for non-streaming)
+                    if onToolCall == nil {
+                        toolCalls.append(toolCall)
+                    }
                 }
             }
 
-            return (promptTokens, capturedCompletionInfo)
+            return (
+                output: output,
+                promptTokens: promptTokens,
+                completionInfo: capturedCompletionInfo,
+                toolCalls: toolCalls
+            )
         }
     }
 
-    /// Runs the model with the given prompt and parameters, returning only the generated output string.
-    public func run(prompt: String, images: [Data]? = nil, parameters: GenerateParameters) async throws -> String {
-        let (output, _, _) = try await runWithUsage(prompt: prompt, images: images, parameters: parameters)
-        return output
-    }
+    // MARK: - Existing methods
 
     // MARK: Private
 

@@ -10,7 +10,7 @@ import NIOHTTP1
 
 /// This modelPool instance should ideally be managed and injected by ServerManager or a DI system.
 /// For now, keeping it global within SwamaKit as per original Router.swift structure.
-let modelPool: ModelPool = .init() // Will use SwamaKit.ModelPool
+let modelPool: ModelPool = .shared // Use the same shared instance as CompletionsHandler
 
 // MARK: - HTTPHandler
 
@@ -78,6 +78,30 @@ public final class HTTPHandler: ChannelInboundHandler, @unchecked Sendable {
             channel.eventLoop.execute {
                 Task {
                     await CompletionsHandler.handle(
+                        requestHead: request,
+                        body: bodyBuffer,
+                        channel: channel
+                    )
+                }
+            }
+
+        case (.POST, "/v1/embeddings"):
+            let channel = context.channel
+            channel.eventLoop.execute {
+                Task {
+                    await EmbeddingsHandler.handle(
+                        requestHead: request,
+                        body: bodyBuffer,
+                        channel: channel
+                    )
+                }
+            }
+
+        case (.POST, "/v1/audio/transcriptions"):
+            let channel = context.channel
+            channel.eventLoop.execute {
+                Task {
+                    await TranscriptionsHandler.handle(
                         requestHead: request,
                         body: bodyBuffer,
                         channel: channel

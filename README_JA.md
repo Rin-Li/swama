@@ -5,17 +5,19 @@
 [![MLX](https://img.shields.io/badge/MLX-Swift-green.svg)](https://github.com/ml-explore/mlx-swift)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> [中文](README_CN.md) | 日本語 | [English](README.md)
+> [English](README.md) | [中文](README_CN.md) | 日本語
 
 **Swama** は、macOS専用に設計され、AppleのMLXフレームワーク上に構築されたピュアSwiftで書かれた高性能機械学習ランタイムです。ローカルLLM（大規模言語モデル）およびVLM（視覚言語モデル）推論のための強力で使いやすいソリューションを提供します。
 
 ## ✨ 特徴
 
 - 🚀 **高性能**: Apple MLXフレームワーク上に構築、Apple Silicon向けに最適化
-- 🔌 **OpenAI互換API**: 標準の `/v1/chat/completions` エンドポイントをサポート
+- 🔌 **OpenAI互換API**: 標準の `/v1/chat/completions`、`/v1/embeddings`、および `/v1/audio/transcriptions` エンドポイントをサポート、Tool Calling対応
 - 📱 **メニューバーアプリ**: エレガントなmacOSネイティブメニューバー統合
 - 💻 **コマンドラインツール**: モデル管理と推論のための完全なCLIサポート
 - 🖼️ **マルチモーダルサポート**: テキストと画像の両方の入力をサポート
+- 🎤 **ローカル音声文字起こし**: Whisper内蔵音声認識（クラウド不要）
+- 🔍 **テキスト埋め込み**: セマンティック検索とRAGアプリケーション用の組み込み埋め込み生成
 - 📦 **スマートモデル管理**: 自動ダウンロード、キャッシュ、バージョン管理
 - 🔄 **ストリーミングレスポンス**: リアルタイムストリーミングテキスト生成をサポート
 - 🌍 **HuggingFace統合**: HuggingFace Hubからの直接モデルダウンロード
@@ -31,7 +33,7 @@ Swamaはモジュラーアーキテクチャ設計を採用しています：
 ## 📋 システム要件
 
 - macOS 14.0以降
-- Apple Silicon (M1/M2/M3)
+- Apple Silicon (M1/M2/M3/M4)
 - Xcode 15.0+（コンパイル用）
 - Swift 6.1+
 
@@ -41,17 +43,12 @@ Swamaはモジュラーアーキテクチャ設計を採用しています：
 
 1. **最新リリースをダウンロード**
    - [Releases](https://github.com/Trans-N-ai/swama/releases) ページにアクセス
-   - 最新リリースから `Swama.zip` をダウンロード
-   - zip ファイルを解凍
+   - 最新リリースから `Swama.dmg` をダウンロード
 
 2. **アプリのインストール**
-   ```bash
-   # アプリケーションフォルダに移動
-   mv Swama.app /Applications/
-   
-   # アプリを起動
-   open /Applications/Swama.app
-   ```
+   - `Swama.dmg` をダブルクリックしてディスクイメージをマウント
+   - `Swama.app` を `Applications` フォルダにドラッグ
+   - アプリケーションまたはSpotlightからSwamaを起動
    
    **注意**: 初回起動時、macOS がセキュリティ警告を表示する場合があります。この場合：
    - **システム環境設定 > セキュリティとプライバシー > 一般** に移動
@@ -72,11 +69,12 @@ git clone https://github.com/Trans-N-ai/swama.git
 cd swama
 
 # CLI ツールをビルド
+cd swama
 swift build -c release
-sudo cp .build/release/swama /usr/local/bin/
+mv .build/release/swama .build/release/swama-bin
 
 # macOS アプリをビルド（Xcode が必要）
-cd swama-macos/Swama
+cd ../swama-macos/Swama
 xcodebuild -project Swama.xcodeproj -scheme Swama -configuration Release
 ```
 
@@ -90,7 +88,7 @@ Swama.app をインストール後、メニューバーアプリまたはコマ�
 # 長いモデル名の代わりに短いエイリアスを使用 - 必要に応じて自動ダウンロード！
 swama run qwen3 "こんにちは、AI"
 swama run llama3.2 "ジョークを教えて"
-swama run deepseek-r1 "量子コンピュータについて説明して"
+swama run gemma3 "この画像には何が写っていますか？" -i /path/to/image.jpg
 
 # 従来の方法（同様に動作）
 swama run mlx-community/Llama-3.2-1B-Instruct-4bit "こんにちは、元気ですか？"
@@ -111,23 +109,17 @@ swama list
 | `qwen3` | `mlx-community/Qwen3-8B-4bit` | Qwen3 8B (デフォルト) |
 | `qwen3-1.7b` | `mlx-community/Qwen3-1.7B-4bit` | Qwen3 1.7B (軽量) |
 | `llama3.2` | `mlx-community/Llama-3.2-3B-Instruct-4bit` | Llama 3.2 3B (デフォルト) |
-| `llama3.2-1b` | `mlx-community/Llama-3.2-1B-Instruct-4bit` | Llama 3.2 1B (最高速) |
+| `gemma3` | `mlx-community/gemma-3-27b-it-4bit` | Gemma 3 (VLM - 視覚言語モデル) |
 | `deepseek-r1` | `mlx-community/DeepSeek-R1-0528-4bit` | DeepSeek R1 (推論型) |
-| `deepseek-coder` | `mlx-community/DeepSeek-Coder-V2-Lite-Instruct-4bit-mlx` | DeepSeek Coder |
 | `qwen2.5` | `mlx-community/Qwen2.5-7B-Instruct-4bit` | Qwen 2.5 7B |
+| `whisper-large` | `openai_whisper-large-v3` | Whisper Large (音声認識) |
+| `whisper-base` | `openai_whisper-base` | Whisper Base (高速、低精度) |
 
 ### 3. APIサービスの開始
 
 ```bash
 # またはモデルを指定せずに開始（API経由で切り替え可能）
 swama serve --host 0.0.0.0 --port 28100
-```
-
-### 4. メニューバーアプリ
-
-```bash
-# メニューバーアプリケーションの起動
-swama menubar
 ```
 
 ### 5. API使用
@@ -162,124 +154,51 @@ curl -X POST http://localhost:28100/v1/chat/completions \
     ],
     "stream": true
   }'
-```
 
-#### 🛠️ コミュニティツール統合
+# テキスト埋め込みの生成
+curl -X POST http://localhost:28100/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input": ["Hello world", "Text embeddings"],
+    "model": "mlx-community/Qwen3-Embedding-0.6B-4bit-DWQ"
+  }'
 
-SwamaがOpenAI互換のエンドポイントを提供するため、人気のコミュニティツールと簡単に統合できます：
+# 音声ファイルの文字起こし（ローカル処理）
+curl -X POST http://localhost:28100/v1/audio/transcriptions \
+  -F "file=@audio.wav" \
+  -F "model=whisper-large" \
+  -F "response_format=json"
 
-**🤖 AIコーディングアシスタント:**
-```bash
-# Continue.dev - config.jsonに追加
-{
-  "models": [{
-    "title": "Swamaローカル",
-    "provider": "openai",
-    "model": "qwen3",
-    "apiBase": "http://localhost:28100/v1"
-  }]
-}
-
-# Cursor - カスタムAPIエンドポイントを設定
-# API Base URL: http://localhost:28100/v1
-# Model: qwen3 または deepseek-coder
-```
-
-**💬 チャットインターフェース:**
-```bash
-# Open WebUI（旧Ollama WebUI）
-# OpenAI API接続を追加:
-# Base URL: http://localhost:28100/v1
-# API Key: not-required
-
-# LibreChat
-# .envファイルに追加:
-OPENAI_API_KEY=not-required
-OPENAI_REVERSE_PROXY=http://localhost:28100/v1
-
-# ChatBox
-# base URL: http://localhost:28100/v1 でOpenAI APIプロバイダーを追加
-```
-
-**🔧 開発ツール:**
-```python
-# OpenAIライブラリを使用したPython
-import openai
-
-client = openai.OpenAI(
-    base_url="http://localhost:28100/v1",
-    api_key="not-required"  # SwamaはAPIキーを必要としません
-)
-
-response = client.chat.completions.create(
-    model="qwen3",
-    messages=[{"role": "user", "content": "Pythonからこんにちは！"}]
-)
-```
-
-```javascript
-// OpenAIライブラリを使用したNode.js
-import OpenAI from 'openai';
-
-const openai = new OpenAI({
-  baseURL: 'http://localhost:28100/v1',
-  apiKey: 'not-required'
-});
-
-const completion = await openai.chat.completions.create({
-  model: 'deepseek-coder',
-  messages: [{ role: 'user', content: 'hello world関数を書いて' }]
-});
-```
-
-**📊 人気の統合:**
-- **Langchain/LlamaIndex**: カスタムbase URLでOpenAIプロバイダーを使用
-- **AutoGen**: マルチエージェント会話用のOpenAIエンドポイントとして設定  
-- **Semantic Kernel**: OpenAIチャット補完サービスとして追加
-- **Flowise/Langflow**: カスタムエンドポイントのOpenAIノード経由で接続
-- **その他**: OpenAI APIをサポートする任意のツールがSwamaに接続可能！
-
-## 📚 コマンドリファレンス
-
-### モデル管理
-
-```bash
-# モデルのダウンロード
-swama pull <model-name>
-
-# ローカルモデルの一覧表示
-swama list [--format json]
-
-# 推論の実行
-swama run <model-name> <prompt> [options]
-```
-
-### サーバー
-
-```bash
-# APIサーバーの開始
-swama serve [--host HOST] [--port PORT]
-
-# メニューバーアプリの開始
-swama menubar
-```
-
-### オプション
-
-- `--temperature <value>`: サンプリング温度（0.0-2.0）
-- `--top-p <value>`: Nucleus samplingパラメータ（0.0-1.0）
-- `--max-tokens <number>`: 生成する最大トークン数
-- `--repetition-penalty <value>`: 繰り返しペナルティ係数
-
-## 🖼️ マルチモーダルサポート
-
-Swamaは視覚言語モデルをサポートし、画像入力を処理できます：
-
-```bash
+# ツール呼び出し（関数呼び出し）
 curl -X POST http://localhost:28100/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "mlx-community/llava-v1.6-mistral-7b-hf-4bit",
+    "model": "qwen3",
+    "messages": [{"role": "user", "content": "東京の天気はどうですか？"}],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "現在の天気を取得",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "location": {"type": "string", "description": "都市名"}
+            },
+            "required": ["location"]
+          }
+        }
+      }
+    ],
+    "tool_choice": "auto"
+  }'
+
+# マルチモーダルサポート（視覚言語モデル）
+curl -X POST http://localhost:28100/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma3",
     "messages": [
       {
         "role": "user",
@@ -291,6 +210,42 @@ curl -X POST http://localhost:28100/v1/chat/completions \
     ]
   }'
 ```
+
+## 📚 コマンドリファレンス
+
+### モデル管理
+
+```bash
+# モデルのダウンロード（エイリアスと完全な名前の両方をサポート）
+swama pull qwen3                    # エイリアスを使用
+swama pull whisper-large            # 音声認識モデルをダウンロード
+swama pull mlx-community/Qwen3-8B-4bit  # 完全な名前を使用
+
+# ローカルモデルと利用可能なエイリアスの一覧表示
+swama list [--format json]
+
+# 推論の実行（ローカルでモデルが見つからない場合は自動ダウンロード）
+swama run qwen3 "あなたのプロンプト"              # エイリアスを使用 - 自動ダウンロード！
+swama run deepseek-coder "Python関数を書いて"  # 別のエイリアス
+swama run <完全なモデル名> <プロンプト> [オプション]      # 完全な名前を使用
+
+# 音声ファイルの文字起こし
+swama transcribe audio.wav --model whisper-large --language ja
+```
+
+### サーバー
+
+```bash
+# APIサーバーの開始
+swama serve [--host HOST] [--port PORT]
+```
+
+### オプション
+
+- `--temperature <value>`: サンプリング温度（0.0-2.0）
+- `--top-p <value>`: Nucleus samplingパラメータ（0.0-1.0）
+- `--max-tokens <number>`: 生成する最大トークン数
+- `--repetition-penalty <value>`: 繰り返しペナルティ係数
 
 ## 🔧 開発
 
@@ -346,9 +301,9 @@ swift package generate-xcodeproj
 
 ## 📞 サポート
 
-- 📝 [Issue Tracker](https://github.com/your-username/swama/issues)
-- 💬 [ディスカッション](https://github.com/your-username/swama/discussions)
-- 📧 Email: your-email@example.com
+- 📝 [Issue Tracker](https://github.com/Trans-N-ai/swama/issues)
+- 💬 [ディスカッション](https://github.com/Trans-N-ai/swama/discussions)
+- 📧 Email: info@trans-n.ai
 
 ## 🗺️ ロードマップ
 

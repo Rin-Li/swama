@@ -19,8 +19,10 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.21.2"),
+        .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.25.4"),
         .package(url: "https://github.com/ml-explore/mlx-swift-examples", branch: "main"),
+        .package(url: "https://github.com/mzbac/mlx.embeddings.git", branch: "main"),
+        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.13.0"),
     ],
     targets: [
         .target(
@@ -32,7 +34,9 @@ let package = Package(
                 .product(name: "MLXLLM", package: "mlx-swift-examples"),
                 .product(name: "MLXVLM", package: "mlx-swift-examples"),
                 .product(name: "MLXLMCommon", package: "mlx-swift-examples"),
+                .product(name: "mlx_embeddings", package: "mlx.embeddings"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "WhisperKit", package: "WhisperKit"),
             ],
             path: "Sources/SwamaKit",
             resources: []
