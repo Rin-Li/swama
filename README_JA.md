@@ -242,7 +242,7 @@ swama transcribe audio.wav --model whisper-large --language ja
 
 ```bash
 # APIサーバーの開始
-swama serve [--host HOST] [--port PORT]
+swama serve [--host HOST] [--port PORT] [--model MODEL_ALIAS]
 ```
 
 ### オプション
